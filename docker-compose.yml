@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secretpassword}
+      POSTGRES_DB: ${DB_NAME:-sih_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest-alpine
+    environment:
+      CLICKHOUSE_DB: ${CH_DB:-sih_analytics}
+      CLICKHOUSE_USER: ${CH_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CH_PASSWORD:-clickhouse}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${DB_NAME:-sih_db}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-secretpassword}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  clustering-service:
+    build:
+      context: ./clustering-service
+    ports:
+      - "8000:8000"
+    environment:
+      - CH_HOST=clickhouse
+      - CH_PORT=8123
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-secretpassword}
+      - DB_NAME=${DB_NAME:-sih_db}
+    depends_on:
+      - postgres
+      - clickhouse
+
+  ingestion:
+    build:
+      context: ./ingestion
+    environment:
+      - BLOCKSTREAM_API_KEY=${BLOCKSTREAM_API_KEY}
+      - TRONGRID_API_KEY=${TRONGRID_API_KEY}
+      - CH_HOST=clickhouse
+      - CH_PORT=8123
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-secretpassword}
+      - DB_NAME=${DB_NAME:-sih_db}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_CLUSTERING_URL=http://localhost:8000
+    depends_on:
+      - api
+      - clustering-service
+
+volumes:
+  postgres_data:
+  clickhouse_data:

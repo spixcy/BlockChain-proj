@@ -1,0 +1,8 @@
+﻿fastapi
+uvicorn
+networkx
+pydantic
+clickhouse-connect
+psycopg2-binary
+requests
+slowapi

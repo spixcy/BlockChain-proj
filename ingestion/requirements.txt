@@ -1,0 +1,4 @@
+﻿apscheduler
+requests
+clickhouse-connect
+psycopg2-binary
